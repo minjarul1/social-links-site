@@ -217,10 +217,31 @@
       color: #475569;
     }
     
-    .error-msg {
+    .view-data-btn {
+      margin-top: 20px;
+      padding: 10px 20px;
+      background: rgba(0,229,255,0.1);
+      border: 1px solid rgba(0,229,255,0.3);
+      color: #00E5FF;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.3s ease;
+    }
+    
+    .view-data-btn:hover {
+      background: rgba(0,229,255,0.2);
+    }
+    
+    .export-btn {
+      margin-top: 10px;
+      padding: 8px 16px;
+      background: rgba(16,185,129,0.1);
+      border: 1px solid rgba(16,185,129,0.3);
+      color: #10b981;
+      border-radius: 8px;
+      cursor: pointer;
       font-size: 11px;
-      color: #ef4444;
-      margin-top: 5px;
     }
   </style>
 </head>
@@ -266,40 +287,74 @@
       </div>
       <div class="last-clicked" id="lastClicked">Waiting for first click...</div>
     </div>
+    
+    <button class="view-data-btn" onclick="showLocalData()">📋 View Click Data</button>
+    <button class="export-btn" onclick="exportData()">📥 Export as JSON</button>
   </div>
   
   <div class="toast" id="toast">✓ Click recorded!</div>
+  
+  <!-- Modal for viewing data -->
+  <div id="dataModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:2000;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:#1e293b;border-radius:16px;padding:24px;max-width:600px;width:100%;max-height:80vh;overflow-y:auto;border:1px solid rgba(255,255,255,0.1);">
+      <h3 style="color:#fff;margin-bottom:15px;">📊 Click Data (Local Storage)</h3>
+      <pre id="dataContent" style="color:#94a3b8;font-size:11px;white-space:pre-wrap;word-break:break-all;"></pre>
+      <div style="margin-top:15px;display:flex;gap:10px;justify-content:center;">
+        <button onclick="copyData()" style="padding:8px 16px;background:#00E5FF;color:#0f172a;border:none;border-radius:8px;cursor:pointer;font-weight:bold;font-size:12px;">Copy</button>
+        <button onclick="closeModal()" style="padding:8px 16px;background:#ef4444;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:bold;font-size:12px;">Close</button>
+      </div>
+    </div>
+  </div>
 
   <script>
-    // Track clicks using localStorage (primary) + CountAPI (secondary)
-    const COUNTER_KEY = 'social_clicks_v2';
+    const STORAGE_KEY = 'social_clicks_v4';
     
-    function getCounts() {
-      const stored = localStorage.getItem(COUNTER_KEY);
-      if (stored) {
-        return JSON.parse(stored);
+    function getClicks() {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      return stored ? JSON.parse(stored) : [];
+    }
+    
+    function saveClick(clickData) {
+      const clicks = getClicks();
+      clicks.push(clickData);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(clicks));
+    }
+    
+    function getVisitorId() {
+      let uid = localStorage.getItem('visitor_id');
+      if (!uid) {
+        uid = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        localStorage.setItem('visitor_id', uid);
       }
-      return { facebook: 0, whatsapp: 0, lastClick: null };
+      return uid;
     }
     
-    function saveCounts(counts) {
-      localStorage.setItem(COUNTER_KEY, JSON.stringify(counts));
+    function getBrowser() {
+      const ua = navigator.userAgent;
+      if (ua.includes('Chrome')) return 'Chrome';
+      if (ua.includes('Firefox')) return 'Firefox';
+      if (ua.includes('Safari')) return 'Safari';
+      if (ua.includes('Edge')) return 'Edge';
+      return 'Other';
     }
     
-    // Send to CountAPI for global tracking
-    async function syncToApi(platform) {
-      try {
-        await fetch(`https://api.countapi.xyz/hit/minjarul1-social/${platform}`, {
-          method: 'POST',
-          mode: 'no-cors'
-        });
-      } catch (e) {
-        console.log('API sync failed (using localStorage):', e);
-      }
+    function getOS() {
+      const ua = navigator.userAgent;
+      if (ua.includes('Android')) return 'Android';
+      if (ua.includes('iPhone') || ua.includes('iPad')) return 'iOS';
+      if (ua.includes('Windows')) return 'Windows';
+      if (ua.includes('Mac')) return 'macOS';
+      return 'Other';
     }
+    
+    function isMobile() {
+      return /Mobile|Android|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    }
+    
+    const visitorId = getVisitorId();
     
     function trackClick(platform) {
-      const sessionKey = `clicked_${platform}_${sessionStorage.getItem('sid') || 'default'}`;
+      const sessionKey = `clicked_${platform}_${visitorId}`;
       
       if (sessionStorage.getItem(sessionKey)) {
         showToast(`You already clicked ${platform} this session!`);
@@ -308,28 +363,32 @@
       
       sessionStorage.setItem(sessionKey, 'true');
       
-      // Update local counts
-      const counts = getCounts();
-      counts[platform] = (counts[platform] || 0) + 1;
-      counts.lastClick = {
+      const clickData = {
+        id: Date.now(),
+        timestamp: new Date().toISOString(),
+        visitor_id: visitorId,
+        event: 'click',
         platform: platform,
-        time: new Date().toLocaleString()
+        url: window.location.href,
+        referrer: document.referrer || 'direct',
+        user_agent: navigator.userAgent.substring(0, 100),
+        screen_resolution: `${screen.width}x${screen.height}`,
+        language: navigator.language,
+        device: isMobile() ? 'Mobile' : 'Desktop',
+        browser: getBrowser(),
+        os: getOS()
       };
-      saveCounts(counts);
       
-      // Try to sync to API (non-blocking)
-      syncToApi(platform);
-      
-      // Update UI
+      saveClick(clickData);
       updateDisplay();
-      showToast(`${platform.charAt(0).toUpperCase() + platform.slice(1)} link clicked! (${counts[platform]} total)`);
+      showToast(`${platform.charAt(0).toUpperCase() + platform.slice(1)} link opened!`);
     }
     
     function updateDisplay() {
-      const counts = getCounts();
-      const fb = counts.facebook || 0;
-      const wa = counts.whatsapp || 0;
-      const total = fb + wa;
+      const clicks = getClicks();
+      const fb = clicks.filter(c => c.platform === 'facebook').length;
+      const wa = clicks.filter(c => c.platform === 'whatsapp').length;
+      const total = clicks.length;
       
       document.getElementById('fbCount').textContent = fb;
       document.getElementById('waCount').textContent = wa;
@@ -337,16 +396,81 @@
       document.getElementById('fbCountBtn').textContent = fb;
       document.getElementById('waCountBtn').textContent = wa;
       
-      if (counts.lastClick) {
+      if (clicks.length > 0) {
+        const last = clicks[clicks.length - 1];
         document.getElementById('lastClicked').textContent = 
-          `Last: ${counts.lastClick.time} • ${counts.lastClick.platform}`;
+          `Last: ${new Date(last.timestamp).toLocaleString()} • ${last.platform}`;
       }
     }
     
-    function animateCount(id) {
-      const el = document.getElementById(id);
-      el.classList.add('pulse');
-      setTimeout(() => el.classList.remove('pulse'), 500);
+    function showLocalData() {
+      const clicks = getClicks();
+      const content = document.getElementById('dataContent');
+      
+      if (clicks.length === 0) {
+        content.textContent = 'No clicks recorded yet.';
+      } else {
+        const summary = {
+          total_clicks: clicks.length,
+          facebook_clicks: clicks.filter(c => c.platform === 'facebook').length,
+          whatsapp_clicks: clicks.filter(c => c.platform === 'whatsapp').length,
+          unique_visitors: [...new Set(clicks.map(c => c.visitor_id))].length,
+          devices: {
+            mobile: clicks.filter(c => c.device === 'Mobile').length,
+            desktop: clicks.filter(c => c.device === 'Desktop').length
+          },
+          browsers: {},
+          os: {},
+          recent_clicks: clicks.slice(-10).map(c => ({
+            time: new Date(c.timestamp).toLocaleString(),
+            platform: c.platform,
+            device: c.device,
+            browser: c.browser,
+            os: c.os,
+            visitor_id: c.visitor_id.substring(0, 15) + '...'
+          }))
+        };
+        
+        clicks.forEach(c => {
+          summary.browsers[c.browser] = (summary.browsers[c.browser] || 0) + 1;
+        });
+        
+        clicks.forEach(c => {
+          summary.os[c.os] = (summary.os[c.os] || 0) + 1;
+        });
+        
+        content.textContent = JSON.stringify(summary, null, 2);
+      }
+      
+      document.getElementById('dataModal').style.display = 'flex';
+    }
+    
+    function closeModal() {
+      document.getElementById('dataModal').style.display = 'none';
+    }
+    
+    function copyData() {
+      const data = document.getElementById('dataContent').textContent;
+      navigator.clipboard.writeText(data).then(() => {
+        showToast('Data copied to clipboard!');
+      });
+    }
+    
+    function exportData() {
+      const clicks = getClicks();
+      if (clicks.length === 0) {
+        showToast('No data to export');
+        return;
+      }
+      
+      const blob = new Blob([JSON.stringify(clicks, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `click_data_${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('Data exported!');
     }
     
     function showToast(msg) {
@@ -356,39 +480,16 @@
       setTimeout(() => toast.classList.remove('show'), 2000);
     }
     
-    // Try to fetch from CountAPI on load
-    async function fetchRemoteCounts() {
-      try {
-        const [fbRes, waRes] = await Promise.all([
-          fetch('https://api.countapi.xyz/get/minjarul1-social/facebook').catch(() => null),
-          fetch('https://api.countapi.xyz/get/minjarul1-social/whatsapp').catch(() => null)
-        ]);
-        
-        const fb = fbRes ? parseInt((await fbRes.json()).value) : 0;
-        const wa = waRes ? parseInt((await waRes.json()).value) : 0;
-        
-        // Only update if API has higher counts
-        const local = getCounts();
-        if (fb > (local.facebook || 0) || wa > (local.whatsapp || 0)) {
-          local.facebook = Math.max(local.facebook || 0, fb);
-          local.whatsapp = Math.max(local.whatsapp || 0, wa);
-          saveCounts(local);
-        }
-      } catch (e) {
-        console.log('Remote fetch failed:', e);
-      }
-    }
-    
-    // Initialize
     (function init() {
-      // Generate session ID
       if (!sessionStorage.getItem('sid')) {
         sessionStorage.setItem('sid', Math.random().toString(36).substr(2, 9));
       }
-      
-      fetchRemoteCounts();
       updateDisplay();
     })();
+    
+    document.getElementById('dataModal').addEventListener('click', function(e) {
+      if (e.target === this) closeModal();
+    });
   </script>
 </body>
 </html>
