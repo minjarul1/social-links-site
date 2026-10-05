@@ -308,12 +308,13 @@
 
   <script>
     const STORAGE_KEY = 'social_clicks_v4';
-    
+    const N8N_WEBHOOK = 'https://minjarul.dpdns.org/webhook/social-clicks';
+
     function getClicks() {
       const stored = localStorage.getItem(STORAGE_KEY);
       return stored ? JSON.parse(stored) : [];
     }
-    
+
     function saveClick(clickData) {
       const clicks = getClicks();
       clicks.push(clickData);
@@ -380,8 +381,31 @@
       };
       
       saveClick(clickData);
+      sendToN8n(clickData);
       updateDisplay();
       showToast(`${platform.charAt(0).toUpperCase() + platform.slice(1)} link opened!`);
+    }
+    
+    function sendToN8n(data) {
+      fetch(N8N_WEBHOOK, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          visitor_id: data.visitor_id,
+          event: data.event,
+          platform: data.platform,
+          timestamp: data.timestamp,
+          url: data.url,
+          referrer: data.referrer,
+          ip_address: 'auto',
+          screen_resolution: data.screen_resolution,
+          language: data.language,
+          device: data.device,
+          browser: data.browser,
+          os: data.os
+        }),
+        keepalive: true
+      }).catch(() => {});
     }
     
     function updateDisplay() {
