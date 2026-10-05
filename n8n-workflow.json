@@ -1,0 +1,217 @@
+{
+  "name": "Social Links Click Tracker - Centralized Data",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "social-clicks",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-node",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-300, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://ipapi.co/{{ $json.ip_address }}/json/",
+        "options": {}
+      },
+      "id": "geolocation-node",
+      "name": "Get Location",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [-100, 0]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "visitor_id",
+              "value": "={{ $json.visitor_id }}"
+            },
+            {
+              "name": "event",
+              "value": "={{ $json.event }}"
+            },
+            {
+              "name": "platform",
+              "value": "={{ $json.platform }}"
+            },
+            {
+              "name": "timestamp",
+              "value": "={{ $json.timestamp }}"
+            },
+            {
+              "name": "url",
+              "value": "={{ $json.url }}"
+            },
+            {
+              "name": "referrer",
+              "value": "={{ $json.referrer }}"
+            },
+            {
+              "name": "screen_resolution",
+              "value": "={{ $json.screen_resolution }}"
+            },
+            {
+              "name": "language",
+              "value": "={{ $json.language }}"
+            },
+            {
+              "name": "device",
+              "value": "={{ $json.device }}"
+            },
+            {
+              "name": "browser",
+              "value": "={{ $json.browser }}"
+            },
+            {
+              "name": "os",
+              "value": "={{ $json.os }}"
+            },
+            {
+              "name": "ip_address",
+              "value": "={{ $json.ip_address }}"
+            },
+            {
+              "name": "country",
+              "value": "={{ $json.country_name }}"
+            },
+            {
+              "name": "region",
+              "value": "={{ $json.region }}"
+            },
+            {
+              "name": "city",
+              "value": "={{ $json.city }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "format-node",
+      "name": "Format Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.2,
+      "position": [100, 0]
+    },
+    {
+      "parameters": {
+        "operation": "appendOnly",
+        "tableName": "social_clicks",
+        "additionalFields": {
+          "columns": {
+            "visitor_id": "={{ $json.visitor_id }}",
+            "event": "={{ $json.event }}",
+            "platform": "={{ $json.platform }}",
+            "timestamp": "={{ $json.timestamp }}",
+            "url": "={{ $json.url }}",
+            "referrer": "={{ $json.referrer }}",
+            "ip_address": "={{ $json.ip_address }}",
+            "country": "={{ $json.country }}",
+            "city": "={{ $json.city }}",
+            "device": "={{ $json.device }}",
+            "browser": "={{ $json.browser }}",
+            "os": "={{ $json.os }}",
+            "screen_resolution": "={{ $json.screen_resolution }}"
+          }
+        }
+      },
+      "id": "store-node",
+      "name": "Store in Data Table",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [300, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT platform, COUNT(*) as count FROM social_clicks GROUP BY platform ORDER BY count DESC",
+        "additionalFields": {}
+      },
+      "id": "stats-node",
+      "name": "Get Stats",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [500, 0]
+    },
+    {
+      "parameters": {
+        "responseCode": 200,
+        "responseBody": "{\"success\":true,\"message\":\"Click tracked\",\"data\":{\"visitor_id\":\"={{ $json.visitor_id }}\",\"platform\":\"={{ $json.platform }}\",\"country\":\"={{ $json.country }}\",\"city\":\"={{ $json.city }}\"}}",
+        "options": {}
+      },
+      "id": "response-node",
+      "name": "Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [700, 0]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Get Location",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Location": {
+      "main": [
+        [
+          {
+            "node": "Format Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Data": {
+      "main": [
+        [
+          {
+            "node": "Store in Data Table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store in Data Table": {
+      "main": [
+        [
+          {
+            "node": "Get Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Stats": {
+      "main": [
+        [
+          {
+            "node": "Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
