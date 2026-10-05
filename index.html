@@ -77,24 +77,6 @@
       overflow: hidden;
     }
     
-    .btn::after {
-      content: '';
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      width: 0;
-      height: 0;
-      border-radius: 50%;
-      background: rgba(255,255,255,0.3);
-      transform: translate(-50%, -50%);
-      transition: width 0.6s, height 0.6s;
-    }
-    
-    .btn:active::after {
-      width: 300px;
-      height: 300px;
-    }
-    
     .btn-facebook {
       background: linear-gradient(135deg, #1877F2 0%, #0d5bbf 100%);
       color: #fff;
@@ -132,6 +114,7 @@
       border-radius: 12px;
       font-size: 13px;
       font-weight: bold;
+      min-width: 30px;
     }
     
     .tracker {
@@ -233,6 +216,12 @@
       font-size: 10px;
       color: #475569;
     }
+    
+    .error-msg {
+      font-size: 11px;
+      color: #ef4444;
+      margin-top: 5px;
+    }
   </style>
 </head>
 <body>
@@ -282,90 +271,75 @@
   <div class="toast" id="toast">✓ Click recorded!</div>
 
   <script>
-    // Generate unique user ID (persists across sessions)
-    function getUserId() {
-      let uid = localStorage.getItem('user_id');
-      if (!uid) {
-        uid = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-        localStorage.setItem('user_id', uid);
+    // Track clicks using localStorage (primary) + CountAPI (secondary)
+    const COUNTER_KEY = 'social_clicks_v2';
+    
+    function getCounts() {
+      const stored = localStorage.getItem(COUNTER_KEY);
+      if (stored) {
+        return JSON.parse(stored);
       }
-      return uid;
+      return { facebook: 0, whatsapp: 0, lastClick: null };
     }
     
-    const userId = getUserId();
+    function saveCounts(counts) {
+      localStorage.setItem(COUNTER_KEY, JSON.stringify(counts));
+    }
     
-    // Track clicks with deduplication (one click per user per platform per session)
+    // Send to CountAPI for global tracking
+    async function syncToApi(platform) {
+      try {
+        await fetch(`https://api.countapi.xyz/hit/minjarul1-social/${platform}`, {
+          method: 'POST',
+          mode: 'no-cors'
+        });
+      } catch (e) {
+        console.log('API sync failed (using localStorage):', e);
+      }
+    }
+    
     function trackClick(platform) {
-      const sessionKey = `${platform}_${userId}`;
-      const hasClicked = sessionStorage.getItem(sessionKey);
+      const sessionKey = `clicked_${platform}_${sessionStorage.getItem('sid') || 'default'}`;
       
-      // Don't count if already clicked in this session
-      if (hasClicked) {
+      if (sessionStorage.getItem(sessionKey)) {
         showToast(`You already clicked ${platform} this session!`);
         return;
       }
       
-      // Mark as clicked for this session
       sessionStorage.setItem(sessionKey, 'true');
       
-      // Send to counter API
-      fetch(`https://api.countapi.xyz/hit/minjarul1-social/${platform}`, {
-        method: 'POST'
-      }).catch(() => {});
-      
-      // Also send to Formsubmit for email notification
-      const data = {
+      // Update local counts
+      const counts = getCounts();
+      counts[platform] = (counts[platform] || 0) + 1;
+      counts.lastClick = {
         platform: platform,
-        timestamp: new Date().toISOString(),
-        user_id: userId.substring(0, 20),
-        url: window.location.href,
-        user_agent: navigator.userAgent.substring(0, 50)
+        time: new Date().toLocaleString()
       };
+      saveCounts(counts);
       
-      fetch('https://formsubmit.co/ajax/minjaruli36@gmail.com', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify(data)
-      }).catch(() => {});
+      // Try to sync to API (non-blocking)
+      syncToApi(platform);
       
       // Update UI
-      updateCounts();
-      showToast(`${platform.charAt(0).toUpperCase() + platform.slice(1)} link clicked!`);
-      
-      // Update last clicked time
-      const now = new Date().toLocaleTimeString();
-      document.getElementById('lastClicked').textContent = `Last click: ${now} • ${platform}`;
+      updateDisplay();
+      showToast(`${platform.charAt(0).toUpperCase() + platform.slice(1)} link clicked! (${counts[platform]} total)`);
     }
     
-    // Fetch and display counts
-    async function updateCounts() {
-      try {
-        const [fbRes, waRes] = await Promise.all([
-          fetch('https://api.countapi.xyz/get/minjarul1-social/facebook').catch(() => ({ json: () => ({ value: 0 }) })),
-          fetch('https://api.countapi.xyz/get/minjarul1-social/whatsapp').catch(() => ({ json: () => ({ value: 0 }) }))
-        ]);
-        
-        const fbData = await fbRes.json();
-        const waData = await waRes.json();
-        
-        const fb = parseInt(fbData.value) || 0;
-        const wa = parseInt(waData.value) || 0;
-        const total = fb + wa;
-        
-        // Update display
-        document.getElementById('fbCount').textContent = fb;
-        document.getElementById('waCount').textContent = wa;
-        document.getElementById('totalCount').textContent = total;
-        document.getElementById('fbCountBtn').textContent = fb;
-        document.getElementById('waCountBtn').textContent = wa;
-        
-        // Animate
-        animateCount('fbCount');
-        animateCount('waCount');
-        animateCount('totalCount');
-        
-      } catch (e) {
-        console.log('Counter fetch error:', e);
+    function updateDisplay() {
+      const counts = getCounts();
+      const fb = counts.facebook || 0;
+      const wa = counts.whatsapp || 0;
+      const total = fb + wa;
+      
+      document.getElementById('fbCount').textContent = fb;
+      document.getElementById('waCount').textContent = wa;
+      document.getElementById('totalCount').textContent = total;
+      document.getElementById('fbCountBtn').textContent = fb;
+      document.getElementById('waCountBtn').textContent = wa;
+      
+      if (counts.lastClick) {
+        document.getElementById('lastClicked').textContent = 
+          `Last: ${counts.lastClick.time} • ${counts.lastClick.platform}`;
       }
     }
     
@@ -382,11 +356,39 @@
       setTimeout(() => toast.classList.remove('show'), 2000);
     }
     
-    // Load counts on page load
-    updateCounts();
+    // Try to fetch from CountAPI on load
+    async function fetchRemoteCounts() {
+      try {
+        const [fbRes, waRes] = await Promise.all([
+          fetch('https://api.countapi.xyz/get/minjarul1-social/facebook').catch(() => null),
+          fetch('https://api.countapi.xyz/get/minjarul1-social/whatsapp').catch(() => null)
+        ]);
+        
+        const fb = fbRes ? parseInt((await fbRes.json()).value) : 0;
+        const wa = waRes ? parseInt((await waRes.json()).value) : 0;
+        
+        // Only update if API has higher counts
+        const local = getCounts();
+        if (fb > (local.facebook || 0) || wa > (local.whatsapp || 0)) {
+          local.facebook = Math.max(local.facebook || 0, fb);
+          local.whatsapp = Math.max(local.whatsapp || 0, wa);
+          saveCounts(local);
+        }
+      } catch (e) {
+        console.log('Remote fetch failed:', e);
+      }
+    }
     
-    // Poll for updates every 30 seconds
-    setInterval(updateCounts, 30000);
+    // Initialize
+    (function init() {
+      // Generate session ID
+      if (!sessionStorage.getItem('sid')) {
+        sessionStorage.setItem('sid', Math.random().toString(36).substr(2, 9));
+      }
+      
+      fetchRemoteCounts();
+      updateDisplay();
+    })();
   </script>
 </body>
 </html>
