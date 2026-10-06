@@ -307,166 +307,106 @@
   </div>
 
   <script>
-    const STORAGE_KEY = 'social_clicks_v4';
-    const N8N_WEBHOOK = 'https://minjarul.dpdns.org/webhook/social-clicks';
-
-    function getClicks() {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      return stored ? JSON.parse(stored) : [];
-    }
-
-    function saveClick(clickData) {
-      const clicks = getClicks();
-      clicks.push(clickData);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(clicks));
-    }
+    // Using CountAPI for global click counting
+    const COUNTER_KEY = 'ai-tech-gopalpur';
+    const VISITOR_ID_KEY = 'visitor_id_v2';
+    const CLICKED_KEY = 'clicked_platforms';
     
     function getVisitorId() {
-      let uid = localStorage.getItem('visitor_id');
+      let uid = localStorage.getItem(VISITOR_ID_KEY);
       if (!uid) {
         uid = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-        localStorage.setItem('visitor_id', uid);
+        localStorage.setItem(VISITOR_ID_KEY, uid);
       }
       return uid;
     }
     
-    function getBrowser() {
-      const ua = navigator.userAgent;
-      if (ua.includes('Chrome')) return 'Chrome';
-      if (ua.includes('Firefox')) return 'Firefox';
-      if (ua.includes('Safari')) return 'Safari';
-      if (ua.includes('Edge')) return 'Edge';
-      return 'Other';
+    function getClickedPlatforms() {
+      const clicked = localStorage.getItem(CLICKED_KEY);
+      return clicked ? JSON.parse(clicked) : [];
     }
     
-    function getOS() {
-      const ua = navigator.userAgent;
-      if (ua.includes('Android')) return 'Android';
-      if (ua.includes('iPhone') || ua.includes('iPad')) return 'iOS';
-      if (ua.includes('Windows')) return 'Windows';
-      if (ua.includes('Mac')) return 'macOS';
-      return 'Other';
+    function addClickedPlatform(platform) {
+      const clicked = getClickedPlatforms();
+      if (!clicked.includes(platform)) {
+        clicked.push(platform);
+        localStorage.setItem(CLICKED_KEY, JSON.stringify(clicked));
+      }
     }
     
-    function isMobile() {
-      return /Mobile|Android|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    function isPlatformClicked(platform) {
+      return getClickedPlatforms().includes(platform);
     }
     
-    const visitorId = getVisitorId();
+    async function fetchCounts() {
+      try {
+        const response = await fetch(`https://api.countapi.xyz/hit/${COUNTER_KEY}/facebook`);
+        const fbCount = await response.json();
+        
+        const response2 = await fetch(`https://api.countapi.xyz/hit/${COUNTER_KEY}/whatsapp`);
+        const waCount = await response2.json();
+        
+        return {
+          facebook: fbCount.value || 0,
+          whatsapp: waCount.value || 0,
+          total: (fbCount.value || 0) + (waCount.value || 0)
+        };
+      } catch (error) {
+        console.error('Failed to fetch counts:', error);
+        return { facebook: 0, whatsapp: 0, total: 0 };
+      }
+    }
     
-    function trackClick(platform) {
-      const sessionKey = `clicked_${platform}_${visitorId}`;
+    function updateDisplay(counts) {
+      document.getElementById('fbCount').textContent = counts.facebook;
+      document.getElementById('waCount').textContent = counts.whatsapp;
+      document.getElementById('totalCount').textContent = counts.total;
+      document.getElementById('fbCountBtn').textContent = counts.facebook;
+      document.getElementById('waCountBtn').textContent = counts.whatsapp;
       
-      if (sessionStorage.getItem(sessionKey)) {
-        showToast(`You already clicked ${platform} this session!`);
+      if (counts.total > 0) {
+        document.getElementById('lastClicked').textContent = 
+          `Total clicks: ${counts.total} • ${counts.facebook} Facebook, ${counts.whatsapp} WhatsApp`;
+      }
+    }
+    
+    async function trackClick(platform) {
+      if (isPlatformClicked(platform)) {
+        showToast(`You already clicked ${platform}!`);
         return;
       }
       
-      sessionStorage.setItem(sessionKey, 'true');
+      addClickedPlatform(platform);
       
-      const clickData = {
-        id: Date.now(),
-        timestamp: new Date().toISOString(),
-        visitor_id: visitorId,
-        event: 'click',
-        platform: platform,
-        url: window.location.href,
-        referrer: document.referrer || 'direct',
-        user_agent: navigator.userAgent.substring(0, 100),
-        screen_resolution: `${screen.width}x${screen.height}`,
-        language: navigator.language,
-        device: isMobile() ? 'Mobile' : 'Desktop',
-        browser: getBrowser(),
-        os: getOS()
-      };
+      try {
+        // Increment counter on CountAPI
+        await fetch(`https://api.countapi.xyz/hit/${COUNTER_KEY}/${platform}`);
+      } catch (error) {
+        console.error('Failed to increment counter:', error);
+      }
       
-      saveClick(clickData);
-      sendToN8n(clickData);
-      updateDisplay();
+      // Refresh counts
+      const counts = await fetchCounts();
+      updateDisplay(counts);
+      
       showToast(`${platform.charAt(0).toUpperCase() + platform.slice(1)} link opened!`);
     }
     
-    function sendToN8n(data) {
-      fetch(N8N_WEBHOOK, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          visitor_id: data.visitor_id,
-          event: data.event,
-          platform: data.platform,
-          timestamp: data.timestamp,
-          url: data.url,
-          referrer: data.referrer,
-          ip_address: 'auto',
-          screen_resolution: data.screen_resolution,
-          language: data.language,
-          device: data.device,
-          browser: data.browser,
-          os: data.os
-        }),
-        keepalive: true
-      }).catch(() => {});
-    }
-    
-    function updateDisplay() {
-      const clicks = getClicks();
-      const fb = clicks.filter(c => c.platform === 'facebook').length;
-      const wa = clicks.filter(c => c.platform === 'whatsapp').length;
-      const total = clicks.length;
-      
-      document.getElementById('fbCount').textContent = fb;
-      document.getElementById('waCount').textContent = wa;
-      document.getElementById('totalCount').textContent = total;
-      document.getElementById('fbCountBtn').textContent = fb;
-      document.getElementById('waCountBtn').textContent = wa;
-      
-      if (clicks.length > 0) {
-        const last = clicks[clicks.length - 1];
-        document.getElementById('lastClicked').textContent = 
-          `Last: ${new Date(last.timestamp).toLocaleString()} • ${last.platform}`;
-      }
-    }
-    
     function showLocalData() {
-      const clicks = getClicks();
-      const content = document.getElementById('dataContent');
-      
-      if (clicks.length === 0) {
-        content.textContent = 'No clicks recorded yet.';
-      } else {
+      fetchCounts().then(counts => {
+        const visitorId = getVisitorId();
+        const clicked = getClickedPlatforms();
+        
         const summary = {
-          total_clicks: clicks.length,
-          facebook_clicks: clicks.filter(c => c.platform === 'facebook').length,
-          whatsapp_clicks: clicks.filter(c => c.platform === 'whatsapp').length,
-          unique_visitors: [...new Set(clicks.map(c => c.visitor_id))].length,
-          devices: {
-            mobile: clicks.filter(c => c.device === 'Mobile').length,
-            desktop: clicks.filter(c => c.device === 'Desktop').length
-          },
-          browsers: {},
-          os: {},
-          recent_clicks: clicks.slice(-10).map(c => ({
-            time: new Date(c.timestamp).toLocaleString(),
-            platform: c.platform,
-            device: c.device,
-            browser: c.browser,
-            os: c.os,
-            visitor_id: c.visitor_id.substring(0, 15) + '...'
-          }))
+          global_clicks: counts,
+          your_visitor_id: visitorId.substring(0, 20) + '...',
+          your_clicked_platforms: clicked,
+          note: 'Counts are from CountAPI (global counter)'
         };
         
-        clicks.forEach(c => {
-          summary.browsers[c.browser] = (summary.browsers[c.browser] || 0) + 1;
-        });
-        
-        clicks.forEach(c => {
-          summary.os[c.os] = (summary.os[c.os] || 0) + 1;
-        });
-        
-        content.textContent = JSON.stringify(summary, null, 2);
-      }
-      
-      document.getElementById('dataModal').style.display = 'flex';
+        document.getElementById('dataContent').textContent = JSON.stringify(summary, null, 2);
+        document.getElementById('dataModal').style.display = 'flex';
+      });
     }
     
     function closeModal() {
@@ -481,20 +421,22 @@
     }
     
     function exportData() {
-      const clicks = getClicks();
-      if (clicks.length === 0) {
-        showToast('No data to export');
-        return;
-      }
-      
-      const blob = new Blob([JSON.stringify(clicks, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `click_data_${new Date().toISOString().slice(0,10)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      showToast('Data exported!');
+      fetchCounts().then(counts => {
+        const exportData = {
+          export_date: new Date().toISOString(),
+          global_counts: counts,
+          counter_key: COUNTER_KEY
+        };
+        
+        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `click_stats_${new Date().toISOString().slice(0,10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast('Data exported!');
+      });
     }
     
     function showToast(msg) {
@@ -505,10 +447,20 @@
     }
     
     (function init() {
-      if (!sessionStorage.getItem('sid')) {
-        sessionStorage.setItem('sid', Math.random().toString(36).substr(2, 9));
-      }
-      updateDisplay();
+      // Generate visitor ID
+      getVisitorId();
+      
+      // Fetch and display counts
+      fetchCounts().then(counts => {
+        updateDisplay(counts);
+      }).catch(() => {
+        document.getElementById('fbCount').textContent = '0';
+        document.getElementById('waCount').textContent = '0';
+        document.getElementById('totalCount').textContent = '0';
+        document.getElementById('fbCountBtn').textContent = '0';
+        document.getElementById('waCountBtn').textContent = '0';
+        document.getElementById('lastClicked').textContent = 'Click counters loading...';
+      });
     })();
     
     document.getElementById('dataModal').addEventListener('click', function(e) {
